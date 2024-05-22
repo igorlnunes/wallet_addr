@@ -1,0 +1,13 @@
+[package]
+name = "wallet-read-usdc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dotenvy = "0.15.7"
+ethers = "2.0"
+eyre = "0.6.8"
+hex = "0.4.3"
+serde_json = "1.0.96"
+tokio = { version = "1.28.2", features = ["full"] }
+
