@@ -1,16 +1,16 @@
 use ethers::{
     prelude::abigen,
     providers::{Http, Provider},
-    types::Address,
+    types::{Address, U256},
 };
 use eyre::Ok;
-// core::result::Result;
 // use serde_json::Value;
 use std::io;
 use std::{convert::TryFrom, sync::Arc};
 use tokio;
 
 #[tokio::main]
+#[allow(non_snake_case)]
 async fn main() -> eyre::Result<()> {
     let INFURA_API_KEY = dotenvy::var("INFURA_API_KEY").expect("API KEY is need");
     let provider = Provider::try_from(format!("https://mainnet.infura.io/v3/{}", INFURA_API_KEY))?;
@@ -20,6 +20,7 @@ async fn main() -> eyre::Result<()> {
     let address_from = address_input.trim().parse::<Address>()?;
 
     // Chame a função com o endereço
+
     print_balances(&provider, address_from).await?;
 
     Ok(())
@@ -36,6 +37,7 @@ async fn print_balances(provider: &Provider<Http>, address_from: Address) -> eyr
             function transfer(address recipient, uint256 amount) external returns (bool)
             function allowance(address owner, address spender) external view returns (uint256)
             function approve(address spender, uint256 amount) external returns (bool)
+            function decimals() public view returns (uint8)
             function transferFrom( address sender, address recipient, uint256 amount) external returns (bool)
             event Transfer(address indexed from, address indexed to, uint256 value)
             event Approval(address indexed owner, address indexed spender, uint256 value)
@@ -46,15 +48,26 @@ async fn print_balances(provider: &Provider<Http>, address_from: Address) -> eyr
     let client = Arc::new(provider);
     let contract = IERC20::new(token_address, client);
 
+    // let base: f32 = 10.0;
+
+    let result: U256 = (contract.balance_of(address_from).call()).await.unwrap();
+    let decimal: u8 = (contract.decimals().call()).await.unwrap();
+    let formatted_result = ethers::core::utils::format_units(result, decimal as u32)?;
+
+    // let amount: f32 = result / base.powf(6.0);
     // if let Ok(balance_of) = contract.balance_of(address_from).call().await {
     //     println!("Total USDC is {balanceOf:?}");
-    // } else {
     //     Err(balance_of);
     // }
-    println!(
-        "Total USDC is {:?}",
-        contract.balance_of(address_from).call().await
-    );
+    // println!(
+    //     "Total USDC is {:?}",
+    //     (contract.balance_of(address_from).call() / contract.decimals().call()).await
+    // );
+    // println!(
+    //     "Total USDC : {:?}",
+    //     formatted_result.unwrap().parse::<f64>()
+    // );
+    println!("Total USDC: {}", formatted_result);
 
     Ok(())
 }
