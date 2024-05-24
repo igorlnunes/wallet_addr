@@ -67,7 +67,12 @@ async fn print_balances(provider: &Provider<Http>, address_from: Address) -> eyr
     //     "Total USDC : {:?}",
     //     formatted_result.unwrap().parse::<f64>()
     // );
-    println!("Total USDC: {}", formatted_result);
+    // println!("Total USDC: {}", formatted_result);
+    let output = format!(
+        "| Your wallet: {:#?} \n| has been: \n|          = {} USDC ",
+        address_from, formatted_result
+    );
+    println!("{}", output);
 
     Ok(())
 }
