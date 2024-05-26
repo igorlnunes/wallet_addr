@@ -4,7 +4,6 @@ use ethers::{
     types::{Address, U256},
 };
 use eyre::Ok;
-// use serde_json::Value;
 use std::io;
 use std::{convert::TryFrom, sync::Arc};
 use tokio;
@@ -22,60 +21,114 @@ use tokio;
 
 */
 
+#[derive(Debug)]
+enum Network {
+    Ethereum(u8, Address),
+    Polygon(u8, Address),
+    Optimism(u8, Address),
+}
+
 #[tokio::main]
 #[allow(non_snake_case)]
 async fn main() -> eyre::Result<()> {
-    //Verifica se o arquivo .env está ok - captura a chave Infura
+    // Get user input for network selection
+    println!("Qual a rede blockchain desejada?");
+    println!("a - Ethereum;");
+    println!("b - Polygon;");
+    println!("c - Optimism;");
+
+    let mut network_choice: String = String::new();
+    io::stdin().read_line(&mut network_choice)?;
+
+    // Convert user input to network index calling the function get_network_index
+    let chain_usdc = get_network_index(&network_choice).unwrap();
+    let (chain, usdc_contract) = match chain_usdc {
+        Network::Ethereum(chain_id, address) => (chain_id, address),
+        Network::Polygon(chain_id, address) => (chain_id, address),
+        Network::Optimism(chain_id, address) => (chain_id, address),
+    };
+
+    let url_chain: &str;
+
+    if chain == 1 {
+        url_chain = "mainnet"
+    } else if chain == 137 {
+        url_chain = "polygon-mainnet"
+    } else if chain == 10 {
+        url_chain = "optimism-mainnet"
+    } else {
+        url_chain = "err"
+    }
+
+    //Check if .env file is ok - get API_KEY
     dotenvy::dotenv().ok();
-    let INFURA_API_KEY = dotenvy::var("INFURA_API_KEY").expect("API KEY is need");
+    let INFURA_API_KEY: String = dotenvy::var("INFURA_API_KEY").expect("API KEY is need");
 
-    // Instancia o provider dada uma conexão com a Ethereum mainnet
-    let provider = Provider::try_from(format!("https://mainnet.infura.io/v3/{}", INFURA_API_KEY))
-        .map_err(|err| eyre::eyre!("Failed to create provider: {}", err))?;
+    // Instanciate the provider given a blockchain connection
+    let provider: Provider<Http> = Provider::try_from(format!(
+        "https://{}.infura.io/v3/{}",
+        url_chain, INFURA_API_KEY
+    ))
+    .map_err(|err| eyre::eyre!("Failed to create provider: {}", err))?;
 
-    // Aguarda o input do usuário
-    let mut address_input = String::new();
+    // Waiting for user input an address
+    let mut address_input: String = String::new();
     println!("Digite o endereço da carteira: ");
     io::stdin()
         .read_line(&mut address_input)
         .map_err(|e| eyre::eyre!("Failed to read input: {}", e))?;
 
-    // "Trata" o input do usuário verificando se é ou não um address de uma wallet
-    let address_from = address_input
+    // Parse the user input and verify if is a valid EVM address
+    let address_from: ethers::types::H160 = address_input
         .trim()
         .parse::<Address>()
         .map_err(|err| eyre::eyre!("Failed to read input: {}", err))?;
 
-    // chama a função para imprimir o saldo da carteira, dado um provider e o endereço
-    print_balances(&provider, address_from).await?;
+    // call the print_balances - it will print the amount of USDC token
+    print_balances(&provider, address_from, usdc_contract).await?;
 
     Ok(())
 }
 
-async fn print_balances(provider: &Provider<Http>, address_from: Address) -> eyre::Result<()> {
-    // Endereço do contrato USDC no Ethereum Mainnet
-    let token_address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".parse::<Address>()?;
+fn get_network_index(network_choice: &str) -> Result<Network, eyre::Error> {
+    match network_choice.trim() {
+        "a" => Ok(Network::Ethereum(
+            1,
+            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".parse::<Address>()?,
+        )),
+        "b" => Ok(Network::Polygon(
+            137,
+            "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359".parse::<Address>()?,
+        )),
+        "c" => Ok(Network::Optimism(
+            10,
+            "0x0b2c639c533813f4aa9d7837caf62653d097ff85".parse::<Address>()?,
+        )),
+        _ => {
+            println!("Invalid network selection. Please try again.");
+            Err(eyre::eyre!("Invalid network selection"))
+        }
+    }
+}
 
-    // Instância do ABI com Interface de um ERC20
+async fn print_balances(
+    provider: &Provider<Http>,
+    address_from: Address,
+    contract_usdc: Address,
+) -> eyre::Result<()> {
+    // Instanciate the ABI with an ERC20 interface
     abigen!(
         IERC20,
         r#"[
-            function totalSupply() external view returns (uint256)
             function balanceOf(address account) external view returns (uint256)
-            function transfer(address recipient, uint256 amount) external returns (bool)
-            function allowance(address owner, address spender) external view returns (uint256)
-            function approve(address spender, uint256 amount) external returns (bool)
             function decimals() public view returns (uint8)
-            function transferFrom( address sender, address recipient, uint256 amount) external returns (bool)
-            event Transfer(address indexed from, address indexed to, uint256 value)
-            event Approval(address indexed owner, address indexed spender, uint256 value)
         ]"#,
     );
 
-    // Cliente do contrato
+    // Contract client
     let client = Arc::new(provider);
-    // Crie instância do contrato ERC20
-    let contract = IERC20::new(token_address, client);
+    // ERC20 contract instanciate
+    let contract = IERC20::new(contract_usdc, client);
 
     let result: U256 = (contract.balance_of(address_from).call())
         .await
