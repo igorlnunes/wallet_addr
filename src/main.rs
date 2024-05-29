@@ -13,9 +13,10 @@ use tokio;
    Ok Handle 0 coins in wallet;
    Ok Handle wrong address pattern - if user input a contract address return - "This is not a valid wallet address"
    > Multichain;
-   - User can be able to change the chain(chainId) for those: Ethereum, Polygon, Optimism
+   Ok User can be able to change the chain(chainId) for those: Ethereum, Polygon, Optimism
    > UX CLI:
-   - pretty formatting;
+   Ok pretty formatting;
+   > change output print;
    > Using up-to-date libs;
    - This is needed because ethers.rs has been deprecated
 
