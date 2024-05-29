@@ -1,25 +1,27 @@
+use crossterm::{
+    event::{self, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use std::io::{self, Write};
+use tui::{
+    backend::{Backend, CrosstermBackend},
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Span, Spans},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
+};
+
 use ethers::{
     prelude::abigen,
     providers::{Http, Provider},
     types::{Address, U256},
 };
-use eyre::Ok;
-use std::io;
-use std::{convert::TryFrom, sync::Arc};
+use eyre::Result;
+use std::convert::TryFrom;
+use std::sync::Arc;
 use tokio;
-
-// todo
-/*  > Handle errors;
-   Ok Handle 0 coins in wallet;
-   Ok Handle wrong address pattern - if user input a contract address return - "This is not a valid wallet address"
-   > Multichain;
-   - User can be able to change the chain(chainId) for those: Ethereum, Polygon, Optimism
-   > UX CLI:
-   - pretty formatting;
-   > Using up-to-date libs;
-   - This is needed because ethers.rs has been deprecated
-
-*/
 
 #[derive(Debug)]
 enum Network {
@@ -28,85 +30,221 @@ enum Network {
     Optimism(u8, Address),
 }
 
-#[tokio::main]
-#[allow(non_snake_case)]
-async fn main() -> eyre::Result<()> {
-    // Get user input for network selection
-    println!("Qual a rede blockchain desejada?");
-    println!("a - Ethereum;");
-    println!("b - Polygon;");
-    println!("c - Optimism;");
-
-    let mut network_choice: String = String::new();
-    io::stdin().read_line(&mut network_choice)?;
-
-    // Convert user input to network index calling the function get_network_index
-    let chain_usdc = get_network_index(&network_choice).unwrap();
-    let (chain, usdc_contract) = match chain_usdc {
-        Network::Ethereum(chain_id, address) => (chain_id, address),
-        Network::Polygon(chain_id, address) => (chain_id, address),
-        Network::Optimism(chain_id, address) => (chain_id, address),
-    };
-
-    let url_chain: &str;
-
-    if chain == 1 {
-        url_chain = "mainnet"
-    } else if chain == 137 {
-        url_chain = "polygon-mainnet"
-    } else if chain == 10 {
-        url_chain = "optimism-mainnet"
-    } else {
-        url_chain = "err"
-    }
-
-    //Check if .env file is ok - get API_KEY
-    dotenvy::dotenv().ok();
-    let INFURA_API_KEY: String = dotenvy::var("INFURA_API_KEY").expect("API KEY is need");
-
-    // Instanciate the provider given a blockchain connection
-    let provider: Provider<Http> = Provider::try_from(format!(
-        "https://{}.infura.io/v3/{}",
-        url_chain, INFURA_API_KEY
-    ))
-    .map_err(|err| eyre::eyre!("Failed to create provider: {}", err))?;
-
-    // Waiting for user input an address
-    let mut address_input: String = String::new();
-    println!("Digite o endereço da carteira: ");
-    io::stdin()
-        .read_line(&mut address_input)
-        .map_err(|e| eyre::eyre!("Failed to read input: {}", e))?;
-
-    // Parse the user input and verify if is a valid EVM address
-    let address_from: ethers::types::H160 = address_input
-        .trim()
-        .parse::<Address>()
-        .map_err(|err| eyre::eyre!("Failed to read input: {}", err))?;
-
-    // call the print_balances - it will print the amount of USDC token
-    print_balances(&provider, address_from, usdc_contract).await?;
-
-    Ok(())
+enum AppState {
+    SelectNetwork,
+    EnterAddress,
+    ShowBalances,
 }
 
-fn get_network_index(network_choice: &str) -> Result<Network, eyre::Error> {
-    match network_choice.trim() {
-        "a" => Ok(Network::Ethereum(
-            1,
-            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".parse::<Address>()?,
-        )),
-        "b" => Ok(Network::Polygon(
-            137,
-            "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359".parse::<Address>()?,
-        )),
-        "c" => Ok(Network::Optimism(
-            10,
-            "0x0b2c639c533813f4aa9d7837caf62653d097ff85".parse::<Address>()?,
-        )),
-        _ => {
-            println!("Invalid network selection. Please try again.");
-            Err(eyre::eyre!("Invalid network selection"))
+struct App<'a> {
+    items: Vec<&'a str>,
+    selected: usize,
+    address_input: String,
+    provider: Option<Provider<Http>>,
+    state: AppState,
+    selected_network: Option<Network>,
+}
+
+impl<'a> App<'a> {
+    fn new() -> App<'a> {
+        App {
+            items: vec!["Ethereum", "Polygon", "Optimism"],
+            selected: 0,
+            address_input: String::new(),
+            provider: None,
+            state: AppState::SelectNetwork,
+            selected_network: None,
+        }
+    }
+
+    fn next(&mut self) {
+        self.selected = (self.selected + 1) % self.items.len();
+    }
+
+    fn previous(&mut self) {
+        if self.selected == 0 {
+            self.selected = self.items.len() - 1;
+        } else {
+            self.selected -= 1;
+        }
+    }
+}
+
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> Result<()> {
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+
+            match app.state {
+                AppState::SelectNetwork => {
+                    let block = Block::default()
+                        .title("Escolha sua rede blockchain:")
+                        .borders(Borders::ALL);
+
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints(
+                            [
+                                Constraint::Percentage(20),
+                                Constraint::Percentage(20),
+                                Constraint::Percentage(20),
+                                Constraint::Percentage(20),
+                                Constraint::Percentage(20),
+                            ]
+                            .as_ref(),
+                        )
+                        .split(size);
+
+                    let items: Vec<Spans> = app
+                        .items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &item)| {
+                            if i == app.selected {
+                                Spans::from(vec![Span::styled(
+                                    format!(">> {}", item),
+                                    Style::default()
+                                        .fg(Color::Yellow)
+                                        .add_modifier(Modifier::BOLD),
+                                )])
+                            } else {
+                                Spans::from(vec![Span::raw(format!("- {}", item))])
+                            }
+                        })
+                        .collect();
+
+                    let paragraph = Paragraph::new(items)
+                        .block(block)
+                        .alignment(Alignment::Left);
+
+                    f.render_widget(paragraph, chunks[1]);
+                }
+                AppState::EnterAddress => {
+                    let block = Block::default()
+                        .title("Digite o endereço da wallet:")
+                        .borders(Borders::ALL);
+
+                    let paragraph = Paragraph::new(app.address_input.as_ref())
+                        .block(block)
+                        .alignment(Alignment::Left);
+
+                    f.render_widget(paragraph, size);
+                }
+                AppState::ShowBalances => {
+                    let block = Block::default()
+                        .title("Saldo da Wallet")
+                        .borders(Borders::ALL);
+
+                    let paragraph = Paragraph::new(app.address_input.as_ref())
+                        .block(block)
+                        .alignment(Alignment::Left);
+
+                    f.render_widget(paragraph, size);
+                }
+            }
+        })?;
+
+        if let Event::Key(key) = event::read()? {
+            match app.state {
+                AppState::SelectNetwork => match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Down => app.next(),
+                    KeyCode::Up => app.previous(),
+                    KeyCode::Char('e') => {
+                        app.selected_network = Some(match app.selected {
+                            0 => Network::Ethereum(
+                                1,
+                                "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+                                    .parse::<Address>()
+                                    .unwrap(),
+                            ),
+                            1 => Network::Polygon(
+                                137,
+                                "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+                                    .parse::<Address>()
+                                    .unwrap(),
+                            ),
+                            2 => Network::Optimism(
+                                10,
+                                "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
+                                    .parse::<Address>()
+                                    .unwrap(),
+                            ),
+                            _ => unreachable!(),
+                        });
+                        app.state = AppState::EnterAddress;
+                    }
+                    _ => {}
+                },
+                AppState::EnterAddress => match key.code {
+                    KeyCode::Char(c) => {
+                        app.address_input.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.address_input.pop();
+                    }
+                    KeyCode::Enter => {
+                        if let Some(selected_network) = &app.selected_network {
+                            let (chain, usdc_contract) = match selected_network {
+                                Network::Ethereum(chain_id, address) => (chain_id, address),
+                                Network::Polygon(chain_id, address) => (chain_id, address),
+                                Network::Optimism(chain_id, address) => (chain_id, address),
+                            };
+
+                            let url_chain: &str;
+
+                            if *chain == 1 {
+                                url_chain = "mainnet"
+                            } else if *chain == 137 {
+                                url_chain = "polygon-mainnet"
+                            } else if *chain == 10 {
+                                url_chain = "optimism-mainnet"
+                            } else {
+                                url_chain = "err"
+                            }
+
+                            // Check if .env file is ok - get API_KEY
+                            dotenvy::dotenv().ok();
+                            let INFURA_API_KEY: String =
+                                dotenvy::var("INFURA_API_KEY").expect("API KEY is needed");
+
+                            // Instantiate the provider given a blockchain connection
+                            let provider: Provider<Http> = Provider::try_from(format!(
+                                "https://{}.infura.io/v3/{}",
+                                url_chain, INFURA_API_KEY
+                            ))
+                            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+
+                            app.provider = Some(provider);
+
+                            let address_from: Address = app
+                                .address_input
+                                .trim()
+                                .parse::<Address>()
+                                .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+
+                            if let Some(ref provider) = app.provider {
+                                print_balances(provider, address_from, *usdc_contract).await?;
+                            }
+
+                            app.state = AppState::ShowBalances;
+                        }
+                    }
+                    KeyCode::Esc => {
+                        app.state = AppState::SelectNetwork;
+                        app.address_input.clear();
+                    }
+                    _ => {}
+                },
+                AppState::ShowBalances => match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Esc => {
+                        app.state = AppState::SelectNetwork;
+                        app.address_input.clear();
+                    }
+                    _ => {}
+                },
+            }
         }
     }
 }
@@ -116,7 +254,7 @@ async fn print_balances(
     address_from: Address,
     contract_usdc: Address,
 ) -> eyre::Result<()> {
-    // Instanciate the ABI with an ERC20 interface
+    // Instantiate the ABI with an ERC20 interface
     abigen!(
         IERC20,
         r#"[
@@ -126,8 +264,8 @@ async fn print_balances(
     );
 
     // Contract client
-    let client = Arc::new(provider);
-    // ERC20 contract instanciate
+    let client = Arc::new(provider.clone());
+    // ERC20 contract instantiate
     let contract = IERC20::new(contract_usdc, client);
 
     let result: U256 = (contract.balance_of(address_from).call())
@@ -151,6 +289,30 @@ async fn print_balances(
         address_from, formatted_result
     );
     println!("{}", output);
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Setup terminal
+    enable_raw_mode()?;
+    let mut stdout: io::Stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend: CrosstermBackend<io::Stdout> = CrosstermBackend::new(stdout);
+    let mut terminal: Terminal<CrosstermBackend<io::Stdout>> = Terminal::new(backend)?;
+
+    let app: &mut App = &mut App::new();
+    let res: Result<()> = run_app(&mut terminal, app).await;
+
+    // Restore terminal
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    if let Err(err) = res {
+        println!("{:?}", err)
+    }
 
     Ok(())
 }
