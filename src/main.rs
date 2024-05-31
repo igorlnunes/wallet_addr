@@ -3,7 +3,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::io::{self, Write};
+use std::io;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Direction, Layout},
@@ -84,6 +84,7 @@ impl<'a> App<'a> {
     }
 }
 
+#[allow(non_snake_case)]
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> Result<()> {
     loop {
         terminal.draw(|f| {
@@ -97,13 +98,11 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> R
 
                     let chunks = Layout::default()
                         .direction(Direction::Vertical)
+                        .margin(4)
                         .constraints(
                             [
-                                Constraint::Percentage(20),
-                                Constraint::Percentage(20),
-                                Constraint::Percentage(20),
-                                Constraint::Percentage(20),
-                                Constraint::Percentage(20),
+                                Constraint::Length(5), // Define a altura do Block como 5 linhas
+                                Constraint::Min(0),
                             ]
                             .as_ref(),
                         )
@@ -131,7 +130,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> R
                         .block(block)
                         .alignment(Alignment::Left);
 
-                    f.render_widget(paragraph, chunks[1]);
+                    f.render_widget(paragraph, chunks[0]);
                 }
                 AppState::EnterAddress => {
                     let block = Block::default()
@@ -218,6 +217,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> R
                             }
 
                             // Check if .env file is ok - get API_KEY
+
                             dotenvy::dotenv().ok();
                             let INFURA_API_KEY: String =
                                 dotenvy::var("INFURA_API_KEY").expect("API KEY is needed");
