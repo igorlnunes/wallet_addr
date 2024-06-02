@@ -24,6 +24,21 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio;
 
+// todo
+/*  > Handle errors;
+   Ok Handle 0 coins in wallet;
+   Ok Handle wrong address pattern - if user input a contract address return - "This is not a valid wallet address"
+   > Multichain;
+   Ok User can be able to change the chain(chainId) for those: Ethereum, Polygon, Optimism
+   > UX CLI:
+   Ok pretty formatting;
+   Ok change output print;
+   Ok Using up-to-date libs - ethers.rs has been deprecated but the alloy lib is not recommended yet
+   Ok This is needed because ethers.rs has been deprecated
+
+   > Studying modular code
+*/
+
 #[derive(Debug)]
 enum Network {
     Ethereum(u8, Address),
